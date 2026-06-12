@@ -177,6 +177,36 @@ The bundled `dist/` is committed (GitHub runs `dist/index.js` directly). CI
 fails if `dist/` is stale relative to `src/`, so run `npm run build` and commit
 before pushing.
 
+## Releasing
+
+Releases are fully automated with
+[**semantic-release**](https://github.com/semantic-release/semantic-release).
+Every push to `main` runs the **Release** workflow, which:
+
+1. Runs the CI gate — type-check, tests, build, and a stale-`dist/` check.
+   **Nothing is published unless all of these pass.**
+2. Analyzes commits since the last release ([Conventional
+   Commits](https://www.conventionalcommits.org/)) to compute the next version.
+3. Updates `CHANGELOG.md` + `package.json`, commits them back to `main`, and
+   tags the release (`vX.Y.Z`).
+4. Creates the GitHub Release with generated notes.
+5. Force-updates the floating **major** tag (e.g. `v1`) to the new release so
+   consumers can pin `uses: inspira-legal/get-env-action@v1`.
+
+Commit message conventions drive the version bump:
+
+| Commit type | Release |
+|-------------|---------|
+| `fix: …` | patch (`v1.0.x`) |
+| `feat: …` | minor (`v1.x.0`) |
+| `feat!: …` / `BREAKING CHANGE:` in body | major (`vx.0.0`) |
+| `docs:` / `chore:` / `refactor:` / `test:` | no release |
+
+No secrets beyond the built-in `GITHUB_TOKEN` are required. If `main` has branch
+protection that blocks direct pushes, grant the release a token/App that is
+allowed to push (semantic-release commits the changelog + version back to
+`main`).
+
 ## License
 
 [MIT](./LICENSE)

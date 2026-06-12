@@ -1,17 +1,28 @@
-name: CI
+name: Release
 
 on:
-  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
+# semantic-release needs to push the version commit + tags and create releases.
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for commit analysis
+          persist-credentials: true # reused by the major-tag push
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -21,6 +32,7 @@ jobs:
 
       - run: npm ci
 
+      # --- CI gate: must pass before anything is published ---
       - name: Type-check
         run: npm run lint
 
@@ -30,7 +42,6 @@ jobs:
       - name: Build bundle
         run: npm run build
 
-      # Fail if the committed dist/ is stale relative to src/.
       - name: Verify dist is up to date
         run: |
           if [ -n "$(git status --porcelain dist)" ]; then
@@ -38,3 +49,9 @@ jobs:
             git --no-pager diff --stat dist
             exit 1
           fi
+
+      # --- Publish (only reached if every step above passed) ---
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release

@@ -1,8 +1,13 @@
 {
   "name": "get-env-action",
-  "version": "1.0.0",
+  "version": "0.0.0-development",
   "description": "Fetch repository or deployment-environment variables and inject them as env vars and/or step outputs — no deployment environment binding required.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspira-legal/get-env-action.git"
+  },
+  "private": true,
   "engines": {
     "node": ">=24"
   },
@@ -11,7 +16,8 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "all": "npm run lint && npm run test && npm run build"
+    "all": "npm run lint && npm run test && npm run build",
+    "release": "semantic-release"
   },
   "keywords": [
     "github",
@@ -30,8 +36,12 @@
     "undici": "^6.26.0"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@types/node": "^24.0.0",
     "@vercel/ncc": "^0.38.4",
+    "semantic-release": "^24.2.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }
