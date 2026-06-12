@@ -29,7 +29,7 @@ It also works for plain **repository-level** Actions variables (leave
 ```yaml
 - name: Load staging variables
   id: vars
-  uses: your-org/get-env-action@v1
+  uses: inspira-legal/get-env-action@v1
   with:
     github-token: ${{ secrets.VARS_TOKEN }}   # see "Token" below
     environment: staging                        # omit for repo-level variables
@@ -45,7 +45,7 @@ It also works for plain **repository-level** Actions variables (leave
 ### Only as step outputs (don't touch the job env)
 
 ```yaml
-- uses: your-org/get-env-action@v1
+- uses: inspira-legal/get-env-action@v1
   id: vars
   with:
     github-token: ${{ secrets.VARS_TOKEN }}
@@ -56,7 +56,7 @@ It also works for plain **repository-level** Actions variables (leave
 ### Filter, prefix, and namespace per environment
 
 ```yaml
-- uses: your-org/get-env-action@v1
+- uses: inspira-legal/get-env-action@v1
   with:
     github-token: ${{ secrets.VARS_TOKEN }}
     environment: staging
@@ -69,12 +69,42 @@ It also works for plain **repository-level** Actions variables (leave
 ### From another repository
 
 ```yaml
-- uses: your-org/get-env-action@v1
+- uses: inspira-legal/get-env-action@v1
   with:
     github-token: ${{ secrets.CROSS_REPO_TOKEN }}
     repository: my-org/shared-config
     environment: shared
 ```
+
+### With a GitHub App installation token (recommended)
+
+A GitHub App token avoids long-lived PATs and scopes cleanly to the repos the
+App is installed on. Generate it in a prior step and pass it as `github-token`:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - name: Generate token
+    id: generate_token
+    uses: actions/create-github-app-token@v3
+    with:
+      client-id: ${{ secrets.ENV_READER_ID }}
+      private-key: ${{ secrets.ENV_READER_KEY }}
+      # owner: inspira-legal            # set when reading from another repo/org
+      # repositories: shared-config
+
+  - name: Load environment variables
+    id: vars
+    uses: inspira-legal/get-env-action@v1
+    with:
+      github-token: ${{ steps.generate_token.outputs.token }}
+      environment: staging
+```
+
+Grant the App **Variables: read** (and **Environments: read** for
+environment-scoped variables) on the target repositories.
 
 ## Inputs
 
@@ -114,6 +144,11 @@ App installation token** with:
 
 Store it as a secret and pass it via `github-token`. If the token is
 insufficient the action fails with an explicit `401/403/404` message.
+
+For the App-token approach, see
+[With a GitHub App installation token](#with-a-github-app-installation-token-recommended)
+above — it uses [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
+to mint a short-lived token at runtime.
 
 > Variables are **not** secrets — they are returned in plaintext and may appear
 > in logs/outputs. Do not use this action to read secrets.
