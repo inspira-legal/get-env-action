@@ -18,7 +18,7 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }} # check out the PR branch (not the merge ref) so we can push
           # Pushes by GITHUB_TOKEN do NOT re-trigger CI, so the rebuilt-dist
@@ -31,7 +31,7 @@ jobs:
           persist-credentials: true
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm

@@ -29,7 +29,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.11.1",
+    "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1"
   },
   "overrides": {
@@ -39,10 +39,10 @@
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^7.0.3",
     "@semantic-release/git": "^10.0.1",
-    "@types/node": "^24.0.0",
-    "@vercel/ncc": "^0.38.4",
-    "semantic-release": "^24.2.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "@types/node": "^25.9.3",
+    "@vercel/ncc": "^0.44.0",
+    "semantic-release": "^25.0.5",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   }
 }
