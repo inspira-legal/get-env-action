@@ -31,7 +31,10 @@ jobs:
         run: npm run build
 
       # Fail if the committed dist/ is stale relative to src/.
+      # Skipped for Dependabot — the "Dependabot dist" workflow rebuilds and
+      # commits dist/ on those PRs instead of failing them.
       - name: Verify dist is up to date
+        if: github.actor != 'dependabot[bot]'
         run: |
           if [ -n "$(git status --porcelain dist)" ]; then
             echo "::error::dist/ is out of date. Run 'npm run build' and commit the result."
