@@ -1,0 +1,7 @@
+node_modules/
+lib/
+coverage/
+*.log
+
+# NOTE: dist/ is intentionally committed — GitHub runs dist/index.js directly
+# from the action ref, so the bundle must be checked in.

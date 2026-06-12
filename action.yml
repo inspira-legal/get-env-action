@@ -1,0 +1,77 @@
+name: 'Get Environment Variables'
+description: >-
+  Fetch repository or deployment-environment variables from GitHub and inject
+  them as environment variables and/or step outputs — without binding the job to
+  a deployment environment.
+author: 'Inspira'
+
+branding:
+  icon: 'download-cloud'
+  color: 'purple'
+
+inputs:
+  github-token:
+    description: >-
+      Token used to read variables. The default GITHUB_TOKEN usually cannot read
+      repo/environment variables — use a fine-grained PAT or GitHub App token
+      with "Variables: read" (and "Environments: read" for environment scope).
+    required: false
+    default: ${{ github.token }}
+  environment:
+    description: >-
+      Deployment environment name to read variables from. Leave empty to fetch
+      repository-level variables instead.
+    required: false
+    default: ''
+  repository:
+    description: 'Target repository in "owner/repo" format. Defaults to the current repository.'
+    required: false
+    default: ${{ github.repository }}
+  output-to:
+    description: 'Where to inject variables: "env", "output", or "all".'
+    required: false
+    default: 'all'
+  prefix:
+    description: 'String prepended to every injected variable name (e.g. "STAGING_").'
+    required: false
+    default: ''
+  name-case:
+    description: 'Case transform for injected names: "none", "upper", or "lower".'
+    required: false
+    default: 'none'
+  include:
+    description: >-
+      Comma/newline separated glob patterns (`*`, `?`) of variable names to
+      include. Empty means include everything.
+    required: false
+    default: ''
+  exclude:
+    description: >-
+      Comma/newline separated glob patterns (`*`, `?`) of variable names to
+      exclude. Exclude always wins over include.
+    required: false
+    default: ''
+  overwrite:
+    description: 'When injecting env vars, overwrite names that are already set.'
+    required: false
+    default: 'true'
+  dry-run:
+    description: 'If true, do not set anything — only log what would be injected.'
+    required: false
+    default: 'false'
+  fail-on-empty:
+    description: 'Fail the action if no variables match after filtering.'
+    required: false
+    default: 'false'
+
+outputs:
+  variables:
+    description: 'JSON object mapping every injected variable name to its value.'
+  names:
+    description: 'Comma-separated list of injected variable names (after prefix/case).'
+  count:
+    description: 'Number of variables injected.'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
