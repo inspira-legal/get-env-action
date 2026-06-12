@@ -1,0 +1,48 @@
+version: 2
+updates:
+  # JavaScript / Node dependencies (runtime + tooling that is bundled into dist/)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    # Conventional Commit prefixes so semantic-release classifies the bumps.
+    # "build"/"chore" do not trigger a release on their own — a maintainer
+    # rebuilds dist/ and lands a releasable commit when a runtime dep changes.
+    commit-message:
+      prefix: "build"
+      prefix-development: "chore"
+      include: "scope"
+    # Batch low-risk updates into one PR each; majors still open individually.
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions used in the workflows (checkout, setup-node, etc.)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
