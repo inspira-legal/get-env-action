@@ -207,6 +207,21 @@ protection that blocks direct pushes, grant the release a token/App that is
 allowed to push (semantic-release commits the changelog + version back to
 `main`).
 
+### Dependency updates
+
+[Dependabot](.github/dependabot.yml) opens weekly PRs for npm packages and
+GitHub Actions. Because the runtime dependencies are bundled into `dist/`, a
+dependency bump alone would leave `dist/` stale. The
+[**Dependabot dist**](.github/workflows/dependabot-dist.yml) workflow rebuilds
+the bundle and commits it back to the PR branch automatically, so updates stay
+mergeable without manual `npm run build`.
+
+> Pushes made with the built-in `GITHUB_TOKEN` do not re-trigger CI, so the
+> rebuilt-dist commit shows "no checks". To get a real green check (required if
+> you enable branch protection), add a **Dependabot** secret named
+> `DEPENDABOT_DIST_TOKEN` (a PAT or GitHub App token with `contents: write`).
+> The workflow uses it when present and falls back to `GITHUB_TOKEN` otherwise.
+
 ## License
 
 [MIT](./LICENSE)
