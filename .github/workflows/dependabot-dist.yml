@@ -18,7 +18,7 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }} # check out the PR branch (not the merge ref) so we can push
           # Pushes by GITHUB_TOKEN do NOT re-trigger CI, so the rebuilt-dist
