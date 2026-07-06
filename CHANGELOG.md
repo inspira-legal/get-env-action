@@ -1,3 +1,15 @@
+# [1.1.0](https://github.com/inspira-legal/get-env-action/compare/v1.0.1...v1.1.0) (2026-07-06)
+
+
+### Bug Fixes
+
+* **deps:** update dependencies and bump CI actions ([b344bed](https://github.com/inspira-legal/get-env-action/commit/b344bed54e24c88be33fcd828b9569cb06cc0e32))
+
+
+### Features
+
+* bump packages ([e30381f](https://github.com/inspira-legal/get-env-action/commit/e30381f4a3d5bc84585b265380d352ca007d0c3e))
+
 ## [1.0.1](https://github.com/inspira-legal/get-env-action/compare/v1.0.0...v1.0.1) (2026-06-12)
 
 
