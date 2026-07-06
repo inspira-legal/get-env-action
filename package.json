@@ -33,16 +33,16 @@
     "@actions/github": "^9.1.1"
   },
   "overrides": {
-    "undici": "^6.26.0"
+    "undici": "^6.27.0"
   },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/exec": "^7.0.3",
+    "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
-    "@types/node": "^25.9.3",
-    "@vercel/ncc": "^0.44.0",
+    "@types/node": "^26.1.0",
+    "@vercel/ncc": "^0.44.1",
     "semantic-release": "^25.0.5",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   }
 }
