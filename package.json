@@ -1,6 +1,6 @@
 {
   "name": "get-env-action",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Fetch repository or deployment-environment variables and inject them as env vars and/or step outputs — no deployment environment binding required.",
   "type": "module",
   "repository": {

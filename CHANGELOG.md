@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/inspira-legal/get-env-action/compare/v1.1.0...v1.1.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **deps:** bump semantic-release to clear dependabot alerts ([4195051](https://github.com/inspira-legal/get-env-action/commit/41950510ee3160833eca7848c34ba3ff77cdd056))
+
 # [1.1.0](https://github.com/inspira-legal/get-env-action/compare/v1.0.1...v1.1.0) (2026-07-06)
 
 
