@@ -32,9 +32,6 @@
     "@actions/core": "^3.0.1",
     "@actions/github": "^9.1.1"
   },
-  "overrides": {
-    "undici": "^6.27.0"
-  },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^7.1.0",
