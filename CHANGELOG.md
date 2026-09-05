@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/inspira-legal/get-env-action/compare/v1.1.1...v1.1.2) (2026-09-05)
+
+
+### Bug Fixes
+
+* **deps:** bump bundled undici to 6.28.1 and rebuild dist ([f706cc3](https://github.com/inspira-legal/get-env-action/commit/f706cc3ccaeafd4e22bafed3bc24b193149dc932))
+
 ## [1.1.1](https://github.com/inspira-legal/get-env-action/compare/v1.1.0...v1.1.1) (2026-07-24)
 
 
