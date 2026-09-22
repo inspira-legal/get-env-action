@@ -16,6 +16,12 @@ updates:
       prefix: "build"
       prefix-development: "chore"
       include: "scope"
+    # TypeScript 7 (the native compiler port) drops the JS compiler-API surface
+    # @vercel/ncc's ts-loader calls, so `npm run build` fails on it. Unpin once
+    # ncc ships a TS 7 compatible loader.
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
     # Batch low-risk updates into one PR each; majors still open individually.
     groups:
       production-dependencies:
