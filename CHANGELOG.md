@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/inspira-legal/get-env-action/compare/v1.1.2...v1.1.3) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps:** bump bundled undici to 6.29.0 and refresh lockfile ([9c8e309](https://github.com/inspira-legal/get-env-action/commit/9c8e30943cf0f10d3283b2a3cc8775368ccd1c94))
+
 ## [1.1.2](https://github.com/inspira-legal/get-env-action/compare/v1.1.1...v1.1.2) (2026-09-05)
 
 
