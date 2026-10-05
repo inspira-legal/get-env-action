@@ -4086,11 +4086,77 @@ class Request {
     }
   }
 
-  onUpgrade (statusCode, headers, socket) {
+  /**
+   * @param {number|null} statusCode
+   * @param {Buffer[]|null} headers
+   * @param {import('node:stream').Duplex} socket
+   * @param {string} [statusText]
+   */
+  onUpgrade (statusCode, headers, socket, statusText = '') {
+    this.onFinally()
+
     assert(!this.aborted)
     assert(!this.completed)
 
-    return this[kHandler].onUpgrade(statusCode, headers, socket)
+    if (statusCode !== null) {
+      this.#publishUpgradeHeaders(statusCode, headers, statusText)
+    }
+
+    const result = this[kHandler].onUpgrade(statusCode, headers, socket)
+
+    if (!this.aborted) {
+      this.completed = true
+      if (statusCode !== null) {
+        this.#publishUpgradeTrailers()
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * @param {number} statusCode
+   * @param {import('node:http2').IncomingHttpHeaders} headers
+   * @param {(headers: import('node:http2').IncomingHttpHeaders) => Buffer[]} parseHeaders
+   * @param {string} [statusText]
+   */
+  onUpgradeResponse (statusCode, headers, parseHeaders, statusText = '') {
+    assert(!this.aborted)
+    assert(this.completed)
+
+    if (channels.headers.hasSubscribers) {
+      this.#publishUpgradeHeaders(statusCode, parseHeaders(headers), statusText)
+    }
+    this.#publishUpgradeTrailers()
+  }
+
+  /**
+   * @param {Error} error
+   */
+  onUpgradeError (error) {
+    assert(!this.aborted)
+    assert(this.completed)
+
+    if (channels.error.hasSubscribers) {
+      channels.error.publish({ request: this, error })
+    }
+  }
+
+  /**
+   * @param {number} statusCode
+   * @param {Buffer[]} headers
+   * @param {string} statusText
+   */
+  #publishUpgradeHeaders (statusCode, headers, statusText) {
+    if (channels.headers.hasSubscribers) {
+      channels.headers.publish({ request: this, response: { statusCode, headers, statusText } })
+    }
+  }
+
+  #publishUpgradeTrailers () {
+    if (channels.trailers.hasSubscribers) {
+      channels.trailers.publish({ request: this, trailers: [] })
+    }
   }
 
   onComplete (trailers) {
@@ -5989,7 +6055,7 @@ class Parser {
   }
 
   onUpgrade (head) {
-    const { upgrade, client, socket, headers, statusCode } = this
+    const { upgrade, client, socket, headers, statusCode, statusText } = this
 
     assert(upgrade)
     assert(client[kSocket] === socket)
@@ -6024,9 +6090,10 @@ class Parser {
     client.emit('disconnect', client[kUrl], [client], new InformationalError('upgrade'))
 
     try {
-      request.onUpgrade(statusCode, headers, socket)
-    } catch (err) {
-      util.destroy(socket, err)
+      request.onUpgrade(statusCode, headers, socket, statusText)
+    } catch (error) {
+      util.errorRequest(client, request, error)
+      util.destroy(socket, error)
     }
 
     client[kResume]()
@@ -6607,12 +6674,22 @@ function writeH1 (client, request) {
   const socket = client[kSocket]
   clearIdleSocketValidation(socket)
 
-  const abort = (err) => {
-    if (request.aborted || request.completed) {
+  /**
+   * @param {Error} [error]
+   */
+  const abort = (error) => {
+    if (request.aborted) {
       return
     }
 
-    util.errorRequest(client, request, err || new RequestAbortedError())
+    if (request.completed) {
+      if (request.upgrade || request.method === 'CONNECT') {
+        util.destroy(socket, new InformationalError('aborted'))
+      }
+      return
+    }
+
+    util.errorRequest(client, request, error || new RequestAbortedError())
 
     util.destroy(body)
     util.destroy(socket, new InformationalError('aborted'))
@@ -7069,6 +7146,7 @@ module.exports = connectH1
 
 
 const assert = __nccwpck_require__(4589)
+const { errorMonitor } = __nccwpck_require__(8474)
 const { pipeline } = __nccwpck_require__(7075)
 const util = __nccwpck_require__(3440)
 const {
@@ -7143,6 +7221,15 @@ function parseH2Headers (headers) {
   }
 
   return result
+}
+
+/**
+ * @param {import('node:http2').IncomingHttpHeaders} headers
+ * @returns {Buffer[]}
+ */
+function parseH2ResponseHeaders (headers) {
+  const { [HTTP2_HEADER_STATUS]: _statusCode, ...realHeaders } = headers
+  return parseH2Headers(realHeaders)
 }
 
 async function connectH2 (client, socket) {
@@ -7365,22 +7452,32 @@ function writeH2 (client, request) {
   headers[HTTP2_HEADER_AUTHORITY] = host || `${hostname}${port ? `:${port}` : ''}`
   headers[HTTP2_HEADER_METHOD] = method
 
-  const abort = (err) => {
-    if (request.aborted || request.completed) {
+  /**
+   * @param {Error} [error]
+   */
+  const abort = (error) => {
+    if (request.aborted) {
       return
     }
 
-    err = err || new RequestAbortedError()
+    if (request.completed) {
+      if (method === 'CONNECT' && stream != null) {
+        util.destroy(stream, error || new RequestAbortedError())
+      }
+      return
+    }
 
-    util.errorRequest(client, request, err)
+    error = error || new RequestAbortedError()
+
+    util.errorRequest(client, request, error)
 
     if (stream != null) {
-      util.destroy(stream, err)
+      util.destroy(stream, error)
     }
 
     // We do not destroy the socket as we can continue using the session
     // the stream get's destroyed and the session remains to create new streams
-    util.destroy(body, err)
+    util.destroy(body, error)
     client[kQueue][client[kRunningIdx]++] = null
     client[kResume]()
   }
@@ -7399,25 +7496,57 @@ function writeH2 (client, request) {
 
   if (method === 'CONNECT') {
     session.ref()
-    // We are already connected, streams are pending, first request
-    // will create a new stream. We trigger a request to create the stream and wait until
-    // `ready` event is triggered
     // We disabled endStream to allow the user to write to the stream
     stream = session.request(headers, { endStream: false, signal })
+    let upgradeResponseFinished = false
 
-    if (stream.id && !stream.pending) {
-      request.onUpgrade(null, null, stream)
-      ++session[kOpenStreams]
-      client[kQueue][client[kRunningIdx]++] = null
-    } else {
-      stream.once('ready', () => {
-        request.onUpgrade(null, null, stream)
-        ++session[kOpenStreams]
-        client[kQueue][client[kRunningIdx]++] = null
-      })
+    /**
+     * @param {import('node:http2').IncomingHttpHeaders} headers
+     */
+    const onResponse = (headers) => {
+      upgradeResponseFinished = true
+      stream.off(errorMonitor, onUpgradeError)
+      request.onUpgradeResponse(Number(headers[HTTP2_HEADER_STATUS]), headers, parseH2ResponseHeaders)
     }
 
+    /**
+     * @param {Error} error
+     */
+    const onUpgradeError = (error) => {
+      upgradeResponseFinished = true
+      stream.off('response', onResponse)
+      request.onUpgradeError(error)
+    }
+
+    const onReady = () => {
+      try {
+        request.onUpgrade(null, null, stream)
+      } catch (error) {
+        stream.off('response', onResponse)
+        abort(error)
+        return
+      }
+
+      if (request.aborted) {
+        return
+      }
+
+      stream.off('error', abort)
+      stream.once(errorMonitor, onUpgradeError)
+      client[kQueue][client[kRunningIdx]++] = null
+    }
+
+    stream.once('response', onResponse)
+    stream.once('error', abort)
+    ++session[kOpenStreams]
+    onReady()
+
     stream.once('close', () => {
+      if (!upgradeResponseFinished && request.completed) {
+        stream.off('response', onResponse)
+        stream.off(errorMonitor, onUpgradeError)
+        request.onUpgradeError(new InformationalError(`HTTP/2: "stream error" received - code ${stream.rstCode}`))
+      }
       session[kOpenStreams] -= 1
       if (session[kOpenStreams] === 0) session.unref()
     })
@@ -10231,7 +10360,10 @@ class RetryHandler {
     this.retryCount += 1
 
     if (statusCode >= 300) {
-      if (this.retryOpts.statusCodes.includes(statusCode) === false) {
+      // Only expose a response if no earlier attempt has reached the caller.
+      // Otherwise abort this attempt so the error settles the existing body
+      // instead of replacing it with a new response.
+      if (!this.headersSent && this.retryOpts.statusCodes.includes(statusCode) === false) {
         this.headersSent = true
         this.checkpointResponseEnd(headers, resume)
         return this.handler.onHeaders(
@@ -32885,20 +33017,44 @@ var endpoint = withDefaults(null, DEFAULTS);
  * Copyright(c) 2015 Douglas Christopher Wilson
  * MIT Licensed
  */
-const TEXT_REGEXP = /^[\u0009\u0020-\u007e\u0080-\u00ff]*$/;
-const TOKEN_REGEXP = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const SP = 32; // " "
+const HTAB = 9; // "\t"
+const SEMI = 59; // ";"
+const EQ = 61; // "="
+const DQUOTE = 34; // '"'
+const BSLASH = 92; // "\\"
+const COMMA = 44; // ","
+const LOWER_CASE = 1;
+const OWS = 2;
+const SEMI_FLAG = 4;
+const COMMA_FLAG = 8;
+const TOKEN_FLAG = 16;
+const NON_ASCII = 0xff00;
+const CASE_FLAGS = LOWER_CASE | NON_ASCII;
 /**
- * RegExp to match chars that must be quoted-pair in RFC 9110 sec 5.6.4
+ * Character flags used to normalize HTTP field values while scanning.
+ * Out-of-range reads intentionally coerce to zero in bitwise expressions.
  */
-const QUOTE_REGEXP = /[\\"]/g;
-/**
- * RegExp to match type in RFC 9110 sec 8.3.1
- *
- * media-type = type "/" subtype
- * type       = token
- * subtype    = token
- */
-const TYPE_REGEXP = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const CHAR_MAP = new Uint8Array(0x100);
+CHAR_MAP[HTAB] |= OWS;
+CHAR_MAP[SP] |= OWS;
+CHAR_MAP[SEMI] |= SEMI_FLAG;
+CHAR_MAP[COMMA] |= COMMA_FLAG;
+for (let code = 0x80 /* non-ASCII */; code <= 0xff; code++) {
+    CHAR_MAP[code] |= LOWER_CASE;
+}
+for (const char of "!#$%&'*+-.^_`|~") {
+    CHAR_MAP[char.charCodeAt(0)] |= TOKEN_FLAG;
+}
+for (let code = 0x30 /* 0 */; code <= 0x39 /* 9 */; code++) {
+    CHAR_MAP[code] |= TOKEN_FLAG;
+}
+for (let code = 0x41 /* A */; code <= 0x5a /* Z */; code++) {
+    CHAR_MAP[code] |= LOWER_CASE | TOKEN_FLAG;
+}
+for (let code = 0x61 /* a */; code <= 0x7a /* z */; code++) {
+    CHAR_MAP[code] |= TOKEN_FLAG;
+}
 /**
  * Null object perf optimization. Faster than `Object.create(null)` and `{ __proto__: null }`.
  */
@@ -32908,20 +33064,83 @@ const NullObject = /* @__PURE__ */ (() => {
     return C;
 })();
 /**
+ * Validate a type string against RFC 9110.
+ */
+function isTypeValid(type, start = 0, end = type.length) {
+    let hasSlash = false;
+    for (let index = start; index < end; index++) {
+        const code = type.charCodeAt(index);
+        if (code === 47 /* / */) {
+            if (hasSlash || index === start || index >= end - 1)
+                return false;
+            hasSlash = true;
+        }
+        else if (!isTokenCode(code)) {
+            return false;
+        }
+    }
+    return hasSlash;
+}
+/**
+ * Validate a token against RFC 9110.
+ */
+function isTokenValid(token, start = 0, end = token.length) {
+    if (start >= end)
+        return false;
+    for (let index = start; index < end; index++) {
+        if (!isTokenCode(token.charCodeAt(index)))
+            return false;
+    }
+    return true;
+}
+/**
+ * Check whether a character code belongs to the token production in RFC 9110.
+ */
+function isTokenCode(code) {
+    return (CHAR_MAP[code] & TOKEN_FLAG) !== 0;
+}
+/**
+ * Serialize a parameter value.
+ */
+function parameterValue(str) {
+    const len = str.length;
+    if (len === 0)
+        return '""';
+    let index = 0;
+    while (index < len && isTokenCode(str.charCodeAt(index)))
+        index++;
+    if (index === len)
+        return str;
+    let result = '"';
+    let start = 0;
+    while (index < len) {
+        const code = str.charCodeAt(index);
+        if (code !== HTAB && (code < SP || code === 127 || code > 255)) {
+            throw new TypeError(`Invalid parameter value: ${str}`);
+        }
+        if (code === 34 /* " */ || code === 92 /* \\ */) {
+            result += `${str.slice(start, index)}\\`;
+            start = index;
+        }
+        index++;
+    }
+    return `${result}${str.slice(start)}"`;
+}
+/**
  * Format an object into a `Content-Type` header.
  */
 function format(obj) {
     const { type, parameters } = obj;
-    if (!type || !TYPE_REGEXP.test(type)) {
+    if (!type || !isTypeValid(type)) {
         throw new TypeError(`Invalid type: ${type}`);
     }
     let result = type;
     if (parameters) {
         for (const param of Object.keys(parameters)) {
-            if (!TOKEN_REGEXP.test(param)) {
+            if (!isTokenValid(param)) {
                 throw new TypeError(`Invalid parameter name: ${param}`);
             }
-            result += `; ${param}=${qstring(parameters[param])}`;
+            result += `; ${param}=${parameterValue(parameters[param])}`;
         }
     }
     return result;
@@ -32930,126 +33149,158 @@ function format(obj) {
  * Parse a `Content-Type` header.
  */
 function dist_parse(header, options) {
-    const stopChar = options?.comma === true ? COMMA : 65_536; // Sentinel for "no stop char".
+    const stopFlags = SEMI_FLAG | (options?.comma === true ? COMMA_FLAG : 0);
     const len = header.length;
-    let index = skipOWS(header, options?.start ?? 0, len);
-    const valueStart = index;
-    index = skipValue(header, index, len, stopChar);
-    const valueEnd = trailingOWS(header, valueStart, index);
-    const type = header.slice(valueStart, valueEnd).toLowerCase();
-    if (options?.parameters === false) {
+    let valueStart = options?.start ?? 0;
+    while ((CHAR_MAP[header.charCodeAt(valueStart)] & OWS) !== 0) {
+        valueStart++;
+    }
+    let index = valueStart;
+    let typeFlags = 0;
+    let whitespace = -1;
+    let stop = options?.parameters === false ? COMMA_FLAG : 0;
+    while (index < len) {
+        const code = header.charCodeAt(index);
+        const flags = CHAR_MAP[code];
+        if ((flags & stopFlags) !== 0) {
+            stop |= flags & COMMA_FLAG;
+            break;
+        }
+        if ((flags & OWS) !== 0) {
+            if (whitespace === -1)
+                whitespace = index;
+        }
+        else {
+            whitespace = -1;
+        }
+        typeFlags |= (code & NON_ASCII) | flags;
+        index++;
+    }
+    const valueEnd = whitespace === -1 ? index : whitespace;
+    const value = header.slice(valueStart, valueEnd);
+    const type = (typeFlags & CASE_FLAGS) === 0 ? value : value.toLowerCase();
+    if (index === len || stop !== 0) {
         return { type, index, parameters: new NullObject() };
     }
-    return parseParameters(header, type, index, len, stopChar);
+    return parseParameters(header, type, index, len, stopFlags);
 }
-const SP = 32; // " "
-const HTAB = 9; // "\t"
-const SEMI = 59; // ";"
-const EQ = 61; // "="
-const DQUOTE = 34; // '"'
-const BSLASH = 92; // "\\"
-const COMMA = 44; // ","
 /**
  * Parses the parameters of a `Content-Type` header starting at the given index.
  */
-function parseParameters(header, type, index, len, stopChar) {
+function parseParameters(header, type, index, len, stopFlags) {
     const parameters = new NullObject();
     parameter: while (index < len) {
-        if (header.charCodeAt(index) === stopChar)
-            break;
-        index = skipOWS(header, index + 1 /* Skip over ; */, len);
+        index++; // Skip over ;
+        while ((CHAR_MAP[header.charCodeAt(index)] & OWS) !== 0) {
+            index++;
+        }
         const keyStart = index;
+        let keyFlags = 0;
+        let keyWhitespace = -1;
         while (index < len) {
             const code = header.charCodeAt(index);
-            if (code === stopChar)
-                break parameter;
-            if (code === SEMI)
+            const flags = CHAR_MAP[code];
+            if ((flags & stopFlags) !== 0) {
+                if ((flags & COMMA_FLAG) !== 0)
+                    break parameter;
                 continue parameter;
+            }
             if (code === EQ) {
-                const keyEnd = trailingOWS(header, keyStart, index);
-                const key = header.slice(keyStart, keyEnd).toLowerCase();
-                index = skipOWS(header, index + 1, len);
-                if (index < len && header.charCodeAt(index) === DQUOTE) {
+                const keyEnd = keyWhitespace === -1 ? index : keyWhitespace;
+                const value = header.slice(keyStart, keyEnd);
+                const key = (keyFlags & CASE_FLAGS) === 0 ? value : value.toLowerCase();
+                index++;
+                while ((CHAR_MAP[header.charCodeAt(index)] & OWS) !== 0) {
                     index++;
-                    let value = "";
+                }
+                if (index < len && header.charCodeAt(index) === DQUOTE) {
+                    const quotedStart = ++index;
+                    let escaped = false;
                     while (index < len) {
-                        const code = header.charCodeAt(index++);
+                        const code = header.charCodeAt(index);
                         if (code === DQUOTE) {
-                            index = skipValue(header, index, len, stopChar);
-                            if (parameters[key] === undefined)
-                                parameters[key] = value;
-                            break;
+                            if (parameters[key] === undefined) {
+                                parameters[key] = escaped
+                                    ? unescapeQuotedPairs(header, quotedStart, index)
+                                    : header.slice(quotedStart, index);
+                            }
+                            index++;
+                            let stop = 0;
+                            // Discard characters between quote and delimiter.
+                            while (index < len) {
+                                const code = header.charCodeAt(index);
+                                const flags = CHAR_MAP[code];
+                                if ((flags & stopFlags) !== 0) {
+                                    stop = flags & COMMA_FLAG;
+                                    break;
+                                }
+                                index++;
+                            }
+                            if (stop !== 0)
+                                break parameter;
+                            continue parameter;
                         }
-                        if (code === BSLASH && index < len) {
-                            value += header[index++];
+                        if (code === BSLASH && index + 1 < len) {
+                            escaped = true;
+                            index += 2;
                             continue;
                         }
-                        value += String.fromCharCode(code);
+                        index++;
                     }
                     continue parameter;
                 }
                 const valueStart = index;
-                index = skipValue(header, index, len, stopChar);
+                let stop = 0;
+                let valueWhitespace = -1;
+                while (index < len) {
+                    const code = header.charCodeAt(index);
+                    const flags = CHAR_MAP[code];
+                    if ((flags & stopFlags) !== 0) {
+                        stop = flags & COMMA_FLAG;
+                        break;
+                    }
+                    if ((flags & OWS) !== 0) {
+                        if (valueWhitespace === -1)
+                            valueWhitespace = index;
+                    }
+                    else {
+                        valueWhitespace = -1;
+                    }
+                    index++;
+                }
                 if (parameters[key] === undefined) {
-                    const valueEnd = trailingOWS(header, valueStart, index);
+                    const valueEnd = valueWhitespace === -1 ? index : valueWhitespace;
                     parameters[key] = header.slice(valueStart, valueEnd);
                 }
+                if (stop !== 0)
+                    break parameter;
                 continue parameter;
             }
+            if ((flags & OWS) !== 0) {
+                if (keyWhitespace === -1)
+                    keyWhitespace = index;
+            }
+            else {
+                keyWhitespace = -1;
+            }
+            keyFlags |= (code & NON_ASCII) | flags;
             index++;
         }
     }
     return { type, index, parameters };
 }
 /**
- * Skip over characters until a semicolon or other exit character.
+ * Remove backslashes from quoted pairs in a known-terminated quoted string body.
  */
-function skipValue(str, index, len, stopChar) {
-    while (index < len) {
-        const code = str.charCodeAt(index);
-        if (code === SEMI || code === stopChar)
-            break;
-        index++;
+function unescapeQuotedPairs(str, start, end) {
+    let result = "";
+    for (let index = start; index < end; index++) {
+        if (str.charCodeAt(index) === BSLASH) {
+            result += str.slice(start, index);
+            start = ++index;
+        }
     }
-    return index;
-}
-/**
- * Skip optional whitespace (OWS) in an HTTP header value.
- *
- * OWS is defined in RFC 9110 sec 5.6.3 as SP (" ") or HTAB ("\t").
- */
-function skipOWS(header, index, len) {
-    while (index < len) {
-        const char = header.charCodeAt(index);
-        if (char !== SP && char !== HTAB)
-            break;
-        index++;
-    }
-    return index;
-}
-/**
- * Trim optional whitespace (OWS) from the end of a substring.
- *
- * OWS is defined in RFC 9110 sec 5.6.3 as SP (" ") or HTAB ("\t").
- */
-function trailingOWS(header, start, end) {
-    while (end > start) {
-        const char = header.charCodeAt(end - 1);
-        if (char !== SP && char !== HTAB)
-            break;
-        end--;
-    }
-    return end;
-}
-/**
- * Serialize a parameter value.
- */
-function qstring(str) {
-    if (TOKEN_REGEXP.test(str))
-        return str;
-    if (TEXT_REGEXP.test(str))
-        return `"${str.replace(QUOTE_REGEXP, "\\$&")}"`;
-    throw new TypeError(`Invalid parameter value: ${str}`);
+    return result + str.slice(start, end);
 }
 //# sourceMappingURL=index.js.map
 ;// CONCATENATED MODULE: ./node_modules/json-with-bigint/json-with-bigint.js
